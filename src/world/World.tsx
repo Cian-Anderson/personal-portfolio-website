@@ -12,6 +12,7 @@ import Environment from "./environment/Environment";
 import SpaceBackdrop from "./environment/SpaceBackdrop";
 import CockpitMenu from "./ui/cockpit/menu/CockpitMenu";
 import ProjectViewerOverlay from "./ui/project/ProjectViewerOverlay";
+import ProjectEntryOverlay from "./ui/project/ProjectEntryOverlay";
 
 export default function World() {
   return (
@@ -60,6 +61,9 @@ export default function World() {
 
       {/* Cockpit menu. */}
       <CockpitMenu />
+
+      {/* Digital billboard entry effect. */}
+      <ProjectEntryOverlay />
 
       {/* Project viewer. */}
       <ProjectViewerOverlay />

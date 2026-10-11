@@ -99,10 +99,10 @@ function ProjectPanel({
         <planeGeometry args={[width, height]} />
 
         <meshBasicMaterial
-          color="#b8d9df"
-          transparent
-          opacity={0.3}
-          depthWrite={false}
+          color="#101825"
+          transparent={false}
+          depthWrite={true}
+          depthTest={true}
           side={THREE.DoubleSide}
           fog={false}
         />
@@ -113,9 +113,9 @@ function ProjectPanel({
         <planeGeometry args={[width * 0.97, height * 0.94]} />
 
         <meshBasicMaterial
-          color="#071018"
+          color="#060a13"
           transparent
-          opacity={0.24}
+          opacity={0.75}
           depthWrite={false}
           side={THREE.DoubleSide}
           fog={false}
@@ -129,7 +129,7 @@ function ProjectPanel({
         <meshBasicMaterial
           color={accent}
           transparent
-          opacity={0.07}
+          opacity={0.035}
           toneMapped={false}
           depthWrite={false}
           side={THREE.DoubleSide}
@@ -214,27 +214,84 @@ interface PanelContentProps {
   accent: string;
 }
 
+// Split long titles at a word boundary into at most two balanced lines.
+// Short titles remain on one line.
+function getTitleLines(title: string): string {
+  const words = title.trim().split(/\s+/);
+  if (words.length < 3 || title.length <= 22) return title;
+
+  let bestIndex = 1;
+  let bestDifference = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const first = words.slice(0, i).join(" ");
+    const second = words.slice(i).join(" ");
+    const difference = Math.abs(first.length - second.length);
+    if (difference < bestDifference) {
+      bestDifference = difference;
+      bestIndex = i;
+    }
+  }
+  return `${words.slice(0, bestIndex).join(" ")}\n${words.slice(bestIndex).join(" ")}`;
+}
+
+// Troika creates text geometry asynchronously; measure the actual result
+// and scale it down only if it exceeds the safe interior rectangle.
+function fitTextInsidePanel(
+  mesh: THREE.Mesh,
+  availableWidth: number,
+  availableHeight: number,
+) {
+  mesh.geometry.computeBoundingBox();
+  const bounds = mesh.geometry.boundingBox;
+  if (!bounds) return;
+
+  const textWidth = bounds.max.x - bounds.min.x;
+  const textHeight = bounds.max.y - bounds.min.y;
+  if (textWidth <= 0 || textHeight <= 0) return;
+
+  mesh.scale.setScalar(
+    Math.min(1, availableWidth / textWidth, availableHeight / textHeight),
+  );
+}
+
 function PanelContent({ title, width, height, accent }: PanelContentProps) {
+  const displayTitle = getTitleLines(title);
+  const isTwoLines = displayTitle.includes("\n");
+
   return (
     <group>
       <Text
-        position={[0, height * 0.08, 0.1]}
-        fontSize={Math.min(1.7, width * 0.095)}
-        letterSpacing={0.1}
-        color={accent}
+        position={[0, height * 0.1, 0.14]}
+        fontSize={Math.min(2.05, width * 0.125, height * 0.3)}
+        lineHeight={1.15}
+        letterSpacing={0.005}
+        textAlign="center"
+        whiteSpace="nowrap"
+        onSync={(mesh) =>
+          fitTextInsidePanel(
+            mesh,
+            width * 0.8,
+            height * (isTwoLines ? 0.48 : 0.3),
+          )
+        }
+        color="#f4fbff"
+        outlineWidth={0.012}
+        outlineColor={accent}
         anchorX="center"
         anchorY="middle"
         material-toneMapped={false}
         material-side={THREE.FrontSide}
         material-fog={false}
       >
-        {title}
+        {displayTitle}
       </Text>
 
       <Text
-        position={[0, -height * 0.2, 0.1]}
+        position={[0, -height * 0.28, 0.14]}
         fontSize={Math.min(0.44, width * 0.028)}
-        letterSpacing={0.14}
+        letterSpacing={0.065}
+        whiteSpace="nowrap"
+        onSync={(mesh) => fitTextInsidePanel(mesh, width * 0.72, height * 0.1)}
         color={accent}
         anchorX="center"
         anchorY="middle"
@@ -245,9 +302,8 @@ function PanelContent({ title, width, height, accent }: PanelContentProps) {
         TARGET // ARCHIVE NODE
       </Text>
 
-      <mesh position={[0, -height * 0.34, 0.1]} rotation={[0, 0, Math.PI / 4]}>
+      <mesh position={[0, -height * 0.39, 0.14]} rotation={[0, 0, Math.PI / 4]}>
         <boxGeometry args={[0.28, 0.28, 0.05]} />
-
         <meshBasicMaterial
           color={accent}
           wireframe

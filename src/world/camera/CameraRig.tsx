@@ -1,28 +1,23 @@
-// Camera motion rig.
-
 import { useFrame } from "@react-three/fiber";
-
 import { useEffect, useRef } from "react";
-
 import * as THREE from "three";
 
 import { useShipStore } from "../../stores/useShipStore";
-
 import { useViewStore } from "../../stores/useViewStore";
 
-// View config.
 const INTRO_HOLD_TIME = 1;
-
-// Camera timing.
 const CAMERA_TRANSITION_TIME = 2.4;
 
-// Pilot eye position.
 const COCKPIT_LOCAL_POSITION = new THREE.Vector3(0, 0.5, -0.72);
 
-// Cockpit angle.
 const COCKPIT_LOOK_UP = THREE.MathUtils.degToRad(0);
 
-// Easing.
+// Cinematic camera configuration.
+const EXIT_CAMERA_START_DISTANCE = 13;
+const EXIT_CAMERA_END_DISTANCE = 9;
+const EXIT_CAMERA_START_HEIGHT = 3;
+const EXIT_CAMERA_END_HEIGHT = 3.5;
+
 function easeInOutCubic(value: number) {
   if (value < 0.5) {
     return 4 * value * value * value;
@@ -34,55 +29,42 @@ function easeInOutCubic(value: number) {
 export default function CameraRig() {
   const introElapsed = useRef(0);
 
-  // =========================
-  // SHIP
-  // =========================
-
   const shipPosition = useRef(new THREE.Vector3());
-
   const forward = useRef(new THREE.Vector3());
 
   const flightRotation = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
 
-  // =========================
-  // COCKPIT
-  // =========================
-
   const cockpitPosition = useRef(new THREE.Vector3());
-
   const cockpitForward = useRef(new THREE.Vector3());
-
   const cockpitLookTarget = useRef(new THREE.Vector3());
 
   const cockpitRotation = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
 
-  // =========================
-  // CHASE
-  // =========================
-
   const chasePosition = useRef(new THREE.Vector3());
-
   const chaseLookTarget = useRef(new THREE.Vector3());
 
-  // =========================
-  // BLENDED CAMERA
-  // =========================
-
   const blendedPosition = useRef(new THREE.Vector3());
-
   const blendedLookTarget = useRef(new THREE.Vector3());
 
-  // =========================
-  // INITIALISE
-  // =========================
+  // Reusable vectors for the portal camera.
+  const flatForward = useRef(new THREE.Vector3());
+  const orbitRight = useRef(new THREE.Vector3());
+  const orbitOffset = useRef(new THREE.Vector3());
+  const orbitPosition = useRef(new THREE.Vector3());
+  const orbitLookTarget = useRef(new THREE.Vector3());
+
+  // Used to snap to chase after the cinematic.
+  const cinematicJustFinished = useRef(false);
+
+  const entryCameraStart = useRef<THREE.Vector3 | null>(null);
 
   useEffect(() => {
     useViewStore.getState().reset();
   }, []);
 
-  // =========================
+  // ==========================================
   // MANUAL VIEW TOGGLE
-  // =========================
+  // ==========================================
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -91,12 +73,13 @@ export default function CameraRig() {
       }
 
       const viewState = useViewStore.getState();
+      const shipState = useShipStore.getState();
 
-      /*
-       * Don't interrupt the
-       * automatic startup sequence.
-       */
-      if (!viewState.introComplete) {
+      if (
+        !viewState.introComplete ||
+        shipState.entryCinematic !== null ||
+        shipState.exitCinematic !== null
+      ) {
         return;
       }
 
@@ -110,26 +93,22 @@ export default function CameraRig() {
     };
   }, []);
 
-  // =========================
-  // FRAME
-  // =========================
-
+  // Run after the flight hook so we see its
+  // updated ship position and animation timer.
   useFrame(({ camera }, delta) => {
     const dt = Math.min(delta, 0.05);
 
     const shipState = useShipStore.getState();
 
     const [x, y, z] = shipState.position;
-
     const yaw = shipState.yaw;
-
     const pitch = shipState.pitch;
 
     shipPosition.current.set(x, y, z);
 
-    // =========================
+    // ==========================================
     // SHIP DIRECTION
-    // =========================
+    // ==========================================
 
     flightRotation.current.set(pitch, yaw, 0, "YXZ");
 
@@ -138,18 +117,14 @@ export default function CameraRig() {
       .applyEuler(flightRotation.current)
       .normalize();
 
-    // =========================
-    // COCKPIT POSITION
-    // =========================
+    // ==========================================
+    // COCKPIT CAMERA
+    // ==========================================
 
     cockpitPosition.current
       .copy(COCKPIT_LOCAL_POSITION)
       .applyEuler(flightRotation.current)
       .add(shipPosition.current);
-
-    // =========================
-    // COCKPIT VIEW
-    // =========================
 
     cockpitRotation.current.set(pitch + COCKPIT_LOOK_UP, yaw, 0, "YXZ");
 
@@ -162,50 +137,159 @@ export default function CameraRig() {
       .copy(cockpitPosition.current)
       .addScaledVector(cockpitForward.current, 20);
 
-    // =========================
-    // CHASE POSITION
-    // =========================
+    // ==========================================
+    // NORMAL CHASE CAMERA
+    // ==========================================
 
-    /*
-     * This is your existing
-     * third-person camera.
-     */
-    chasePosition.current.copy(shipPosition.current);
-
-    chasePosition.current.addScaledVector(forward.current, -9);
+    chasePosition.current
+      .copy(shipPosition.current)
+      .addScaledVector(forward.current, -9);
 
     chasePosition.current.y += 3.5;
 
-    // =========================
-    // CHASE TARGET
-    // =========================
-
-    chaseLookTarget.current.copy(shipPosition.current);
-
-    chaseLookTarget.current.addScaledVector(forward.current, 6);
+    chaseLookTarget.current
+      .copy(shipPosition.current)
+      .addScaledVector(forward.current, 6);
 
     chaseLookTarget.current.y += 0.4;
 
+    // ==========================================
+    // BILLBOARD DIGITAL ENTRY CAMERA
+    // ==========================================
+
+    const entry = shipState.entryCinematic;
+
+    if (entry) {
+      // Capture the camera's exact position when
+      // the cinematic first begins.
+      if (!entryCameraStart.current) {
+        entryCameraStart.current = camera.position.clone();
+      }
+
+      const progress = THREE.MathUtils.clamp(
+        entry.elapsed / entry.duration,
+        0,
+        1,
+      );
+
+      const push = THREE.MathUtils.smoothstep(progress, 0, 1);
+
+      // The camera gradually closes in on the ship
+      // as both travel through the billboard.
+      const endPosition = shipPosition.current
+        .clone()
+        .addScaledVector(forward.current, -1.2);
+
+      endPosition.y += 0.4;
+
+      // Start at the camera's REAL position,
+      // regardless of the current flight speed.
+      camera.position.lerpVectors(entryCameraStart.current, endPosition, push);
+
+      const lookTarget = shipPosition.current
+        .clone()
+        .addScaledVector(forward.current, 8);
+
+      camera.lookAt(lookTarget);
+
+      return;
+    }
+
+    // Reset after leaving the entry cinematic.
+    entryCameraStart.current = null;
+
+    // ==========================================
+    // BILLBOARD EXIT CINEMATIC
+    // ==========================================
+
+    const cinematic = shipState.exitCinematic;
+
+    if (cinematic) {
+      const progress = THREE.MathUtils.clamp(
+        cinematic.elapsed / cinematic.duration,
+        0,
+        1,
+      );
+
+      const eased = easeInOutCubic(progress);
+
+      // Horizontal ship direction.
+      flatForward.current.copy(forward.current).setY(0).normalize();
+
+      // Right-hand direction for the orbit.
+      orbitRight.current.set(-flatForward.current.z, 0, flatForward.current.x);
+
+      // Orbit from in front of the nose
+      // to behind the engines.
+      const angle = eased * Math.PI;
+
+      const distance = THREE.MathUtils.lerp(
+        EXIT_CAMERA_START_DISTANCE,
+        EXIT_CAMERA_END_DISTANCE,
+        eased,
+      );
+
+      const height = THREE.MathUtils.lerp(
+        EXIT_CAMERA_START_HEIGHT,
+        EXIT_CAMERA_END_HEIGHT,
+        eased,
+      );
+
+      orbitOffset.current
+        .copy(flatForward.current)
+        .multiplyScalar(Math.cos(angle) * distance);
+
+      orbitOffset.current.addScaledVector(
+        orbitRight.current,
+        Math.sin(angle) * distance,
+      );
+
+      orbitPosition.current.copy(shipPosition.current).add(orbitOffset.current);
+
+      orbitPosition.current.y += height;
+
+      // At the start, look at the ship.
+      // At the end, look ahead as chase does.
+      orbitLookTarget.current
+        .copy(shipPosition.current)
+        .addScaledVector(flatForward.current, 6 * eased);
+
+      orbitLookTarget.current.y += 0.4;
+
+      camera.position.copy(orbitPosition.current);
+      camera.lookAt(orbitLookTarget.current);
+
+      cinematicJustFinished.current = true;
+
+      // The camera owns the completion.
+      // It has now rendered the final frame.
+      if (progress >= 1) {
+        camera.position.copy(chasePosition.current);
+        camera.lookAt(chaseLookTarget.current);
+
+        useShipStore.getState().finishExitCinematic();
+      }
+
+      return;
+    }
+
+    // ==========================================
+    // NORMAL CAMERA HANDOFF
+    // ==========================================
+
     let viewState = useViewStore.getState();
 
-    // =========================
-    // AUTOMATIC INTRO
-    // =========================
-
+    // Startup sequence.
     if (!viewState.introComplete && viewState.viewMode === "chase") {
       introElapsed.current += dt;
 
       if (introElapsed.current >= INTRO_HOLD_TIME) {
         viewState.setViewMode("cockpit");
-
         viewState = useViewStore.getState();
       }
     }
 
-    // =========================
-    // TRANSITION PROGRESS
-    // =========================
-
+    // Existing cockpit/chase transition.
     const targetProgress = viewState.viewMode === "chase" ? 1 : 0;
 
     let progress = viewState.transitionProgress;
@@ -224,10 +308,7 @@ export default function CameraRig() {
       useViewStore.getState().setTransitionProgress(progress);
     }
 
-    // =========================
-    // INTRO FINISHED
-    // =========
-
+    // Intro complete.
     if (
       !viewState.introComplete &&
       viewState.viewMode === "cockpit" &&
@@ -236,46 +317,33 @@ export default function CameraRig() {
       useViewStore.getState().completeIntro();
     }
 
-    // =========================
-    // FULL COCKPIT MODE
-    // =========================
-
+    // Full cockpit mode.
     if (progress <= 0) {
-      camera.position.copy(cockpitPosition.current);
+      cinematicJustFinished.current = false;
 
+      camera.position.copy(cockpitPosition.current);
       camera.lookAt(cockpitLookTarget.current);
 
       return;
     }
 
-    // =========================
-    // FULL CHASE MODE
-    // =========================
-
+    // Full chase mode.
     if (progress >= 1) {
-      /*
-       * Preserve the smoothing you
-       * already had in CameraRig.
-       */
-      const positionSmoothing = 1 - Math.exp(-5 * delta);
+      if (cinematicJustFinished.current) {
+        // No camera drift after the portal exit.
+        camera.position.copy(chasePosition.current);
+        cinematicJustFinished.current = false;
+      } else {
+        const smoothing = 1 - Math.exp(-5 * delta);
 
-      camera.position.lerp(chasePosition.current, positionSmoothing);
+        camera.position.lerp(chasePosition.current, smoothing);
+      }
 
       camera.lookAt(chaseLookTarget.current);
-
       return;
     }
 
-    // =========================
-    // BETWEEN THE TWO
-    // =========================
-
-    /*
-     * Camera movement begins immediately
-     * when transitionProgress leaves 0,
-     * and ends exactly when it reaches 0
-     * again on the way back into cockpit view.
-     */
+    // Blended cockpit/chase camera.
     const easedProgress = easeInOutCubic(progress);
 
     blendedPosition.current.lerpVectors(
@@ -291,9 +359,8 @@ export default function CameraRig() {
     );
 
     camera.position.copy(blendedPosition.current);
-
     camera.lookAt(blendedLookTarget.current);
-  });
+  }, 1);
 
   return null;
 }
