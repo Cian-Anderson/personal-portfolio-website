@@ -6,6 +6,8 @@ import { CITY_TOWERS, type GeneratedTower } from "../city/cityTowers";
 
 import HolographicBillboard from "./HolographicBillboard";
 
+import BillboardFlyThrough from "./BillboardFlyThrough";
+
 import { PROJECTS } from "../../projects/projectRegistry";
 
 import {
@@ -388,16 +390,25 @@ export default function ProjectBillboards() {
         }
 
         return (
-          <HolographicBillboard
-            key={project.id}
-            title={project.title}
-            position={transform.position}
-            rotationY={transform.rotationY}
-            width={transform.width}
-            height={transform.height}
-            accent={project.world.accent ?? "cyan"}
-            mount={slot.mount}
-          />
+          <group key={project.id}>
+            <HolographicBillboard
+              title={project.title}
+              position={transform.position}
+              rotationY={transform.rotationY}
+              width={transform.width}
+              height={transform.height}
+              accent={project.world.accent ?? "cyan"}
+              mount={slot.mount}
+            />
+
+            <BillboardFlyThrough
+              projectId={project.id}
+              position={transform.position}
+              rotationY={transform.rotationY}
+              width={transform.width}
+              height={transform.height}
+            />
+          </group>
         );
       })}
     </group>

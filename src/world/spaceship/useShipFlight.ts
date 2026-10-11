@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { useKeyboard } from "../../hooks/useKeyboard";
 import { useShipStore } from "../../stores/useShipStore";
 import { useViewStore } from "../../stores/useViewStore";
+import { useProjectStore } from "../../stores/useProjectStore";
 
 import {
   FLIGHT_CONFIG as FLIGHT,
@@ -113,6 +114,26 @@ export function useShipFlight(
   useFrame((_, delta) => {
     if (!ship.current) return;
 
+    
+    // Apply a requested billboard exit teleport.
+    const teleport = useShipStore.getState().teleportRequest;
+
+    if (teleport) {
+      ship.current.position.set(...teleport.position);
+
+      yaw.current = teleport.yaw;
+      pitch.current = 0;
+
+      forwardSpeed.current = 0;
+      pitchVelocity.current = 0;
+      pitchReleaseTimer.current = 0;
+
+      ship.current.rotation.order = "YXZ";
+      ship.current.rotation.set(0, teleport.yaw, 0);
+
+      useShipStore.getState().clearTeleportRequest();
+    }
+
     // Prevent giant movement jumps if the tab
     // freezes for a moment.
     const dt = Math.min(delta, 0.05);
@@ -159,12 +180,192 @@ export function useShipFlight(
     * - the camera has completely
     *   reached the chase position
     */
+
+    const shipState = useShipStore.getState();
+
+    const cinematic = shipState.exitCinematic;
+
+    const entry = shipState.entryCinematic;
+
     const flightEnabled =
       viewState.introComplete &&
-      viewState.viewMode ===
-        "chase" &&
-      viewState.transitionProgress >=
-        0.999;
+      viewState.viewMode === "chase" &&
+      viewState.transitionProgress >= 0.999 &&
+      !useProjectStore.getState().viewerOpen &&
+      cinematic === null &&
+      entry === null;
+  
+
+    // ==========================================
+    // BILLBOARD DIGITAL ENTRY
+    // ==========================================
+
+    if (entry) {
+      const elapsed = Math.min(
+        entry.elapsed + dt,
+        entry.duration,
+      );
+
+      const progress = elapsed / entry.duration;
+
+      // Smoothly push the ship into the panel.
+      const travel = THREE.MathUtils.smoothstep(
+        progress,
+        0,
+        1,
+      );
+
+      const direction = new THREE.Vector3(
+        ...entry.direction,
+      ).normalize();
+
+      const start = new THREE.Vector3(
+        ...entry.startPosition,
+      );
+
+      // Travel from just outside to inside the panel.
+      ship.current.position
+        .copy(start)
+        .addScaledVector(direction, travel * 9);
+
+      ship.current.position.y = THREE.MathUtils.clamp(
+        ship.current.position.y,
+        WORLD_CONFIG.minHeight,
+        WORLD_CONFIG.maxHeight,
+      );
+
+
+      // Preserve the ship's current pitch and yaw.
+      // Only reset movement momentum and input velocity.
+      forwardSpeed.current = 0;
+      pitchVelocity.current = 0;
+      pitchReleaseTimer.current = 0;
+      shiftWasDown.current = shiftDown;
+
+
+      ship.current.rotation.order = "YXZ";
+      ship.current.rotation.set(
+        pitch.current,
+        yaw.current,
+        0,
+      );
+
+      setTransform(
+        [
+          ship.current.position.x,
+          ship.current.position.y,
+          ship.current.position.z,
+        ],
+        yaw.current,
+        pitch.current,
+      );
+
+      useShipStore
+        .getState()
+        .setEntryCinematicElapsed(elapsed);
+
+      if (elapsed >= entry.duration) {
+        // Open the project after the screen is covered.
+        useProjectStore
+          .getState()
+          .openProject(entry.projectId);
+
+        useShipStore
+          .getState()
+          .finishEntryCinematic();
+      }
+
+      return;
+    }
+
+
+    // ==========================================
+    // BILLBOARD EXIT CINEMATIC
+    // ==========================================
+
+    if (cinematic) {
+      const elapsed = Math.min(
+        cinematic.elapsed + dt,
+        cinematic.duration,
+      );
+
+      const progress = elapsed / cinematic.duration;
+
+      // Smooth acceleration out of the portal.
+      const acceleration = progress * progress;
+
+      const launchSpeed = THREE.MathUtils.lerp(
+        3,
+        15,
+        acceleration,
+      );
+
+      // Fly straight away from the billboard.
+      forward.current
+        .set(0, 0, -1)
+        .applyEuler(
+          new THREE.Euler(0, yaw.current, 0, "YXZ"),
+        )
+        .normalize();
+
+      ship.current.position.addScaledVector(
+        forward.current,
+        launchSpeed * dt,
+      );
+
+      // Respect world boundaries.
+      ship.current.position.x = THREE.MathUtils.clamp(
+        ship.current.position.x,
+        -WORLD_BOUNDARY,
+        WORLD_BOUNDARY,
+      );
+
+      ship.current.position.z = THREE.MathUtils.clamp(
+        ship.current.position.z,
+        -WORLD_BOUNDARY,
+        WORLD_BOUNDARY,
+      );
+
+      ship.current.position.y = THREE.MathUtils.clamp(
+        ship.current.position.y,
+        WORLD_CONFIG.minHeight,
+        WORLD_CONFIG.maxHeight,
+      );
+
+      // No manual steering or leftover momentum.
+      pitch.current = 0;
+      pitchVelocity.current = 0;
+      pitchReleaseTimer.current = 0;
+      forwardSpeed.current = 0;
+      shiftWasDown.current = shiftDown;
+
+      ship.current.rotation.order = "YXZ";
+      ship.current.rotation.set(0, yaw.current, 0);
+
+      // Keep the camera's ship transform updated.
+      setTransform(
+        [
+          ship.current.position.x,
+          ship.current.position.y,
+          ship.current.position.z,
+        ],
+        yaw.current,
+        0,
+      );
+
+      // Advance the shared animation timer.
+      useShipStore
+        .getState()
+        .setExitCinematicElapsed(elapsed);
+
+      // IMPORTANT:
+      // Do not finish the cinematic here.
+      // CameraRig will finish it after rendering
+      // the final orbit frame.
+
+      return;
+    }
+
 
     if (!flightEnabled) {
       /*
