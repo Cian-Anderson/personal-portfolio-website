@@ -77,6 +77,7 @@ export default function CameraRig() {
 
       if (
         !viewState.introComplete ||
+        viewState.flightTutorialOpen ||
         shipState.entryCinematic !== null ||
         shipState.exitCinematic !== null
       ) {

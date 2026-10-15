@@ -187,13 +187,16 @@ export function useShipFlight(
 
     const entry = shipState.entryCinematic;
 
+
     const flightEnabled =
       viewState.introComplete &&
       viewState.viewMode === "chase" &&
       viewState.transitionProgress >= 0.999 &&
+      !viewState.flightTutorialOpen &&
       !useProjectStore.getState().viewerOpen &&
       cinematic === null &&
       entry === null;
+
   
 
     // ==========================================

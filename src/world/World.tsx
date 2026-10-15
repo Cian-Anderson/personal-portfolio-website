@@ -13,6 +13,7 @@ import SpaceBackdrop from "./environment/SpaceBackdrop";
 import CockpitMenu from "./ui/cockpit/menu/CockpitMenu";
 import ProjectViewerOverlay from "./ui/project/ProjectViewerOverlay";
 import ProjectEntryOverlay from "./ui/project/ProjectEntryOverlay";
+import FlightTutorial from "./ui/flight/FlightTutorial";
 
 export default function World() {
   return (
@@ -67,6 +68,9 @@ export default function World() {
 
       {/* Project viewer. */}
       <ProjectViewerOverlay />
+
+      {/* First-flight instructions and controls help. */}
+      <FlightTutorial />
     </>
   );
 }
