@@ -1,112 +1,98 @@
-// View and camera state.
 
 import { create } from "zustand";
 
-export type ViewMode =
-  | "cockpit"
-  | "chase";
+export type ViewMode = "cockpit" | "chase";
 
 interface ViewState {
-  /*
-   * The view the camera is currently
-   * trying to reach.
-   */
   viewMode: ViewMode;
-
-  /*
-   * 0 = cockpit
-   * 1 = normal chase camera
-   *
-   * Values between the two are used
-   * while transitioning.
-   */
   transitionProgress: number;
-
-  /*
-   * False while the automatic opening
-   * chase -> cockpit sequence is running.
-   */
   introComplete: boolean;
 
-  setViewMode: (
-    viewMode: ViewMode,
-  ) => void;
+  flightTutorialOpen: boolean;
+  flightTutorialDismissed: boolean;
 
+  setViewMode: (viewMode: ViewMode) => void;
   toggleView: () => void;
-
-  setTransitionProgress: (
-    progress: number,
-  ) => void;
-
+  setTransitionProgress: (progress: number) => void;
   completeIntro: () => void;
+
+  openFlightTutorial: () => void;
+  closeFlightTutorial: () => void;
 
   reset: () => void;
 }
 
-export const useViewStore =
-  create<ViewState>((set) => ({
-    /*
-     * Start OUTSIDE the ship.
-     */
-    viewMode: "chase",
+const TUTORIAL_STORAGE_KEY =
+  "portfolio-flight-tutorial-completed";
 
-    /*
-     * 1 = fully in chase position.
-     */
-    transitionProgress: 1,
+function hasCompletedFlightTutorial(): boolean {
+  try {
+    return (
+      localStorage.getItem(TUTORIAL_STORAGE_KEY) ===
+      "true"
+    );
+  } catch {
+    return false;
+  }
+}
 
-    introComplete: false,
+export const useViewStore = create<ViewState>((set) => ({
+  viewMode: "chase",
+  transitionProgress: 1,
+  introComplete: false,
 
-    setViewMode: (
-      viewMode,
-    ) => {
-      set({
-        viewMode,
-      });
-    },
+  flightTutorialOpen: false,
+  flightTutorialDismissed: hasCompletedFlightTutorial(),
 
-    toggleView: () => {
-      set((state) => ({
-        viewMode:
-          state.viewMode ===
-          "cockpit"
-            ? "chase"
-            : "cockpit",
-      }));
-    },
+  setViewMode: (viewMode) => {
+    set({ viewMode });
+  },
 
-    setTransitionProgress: (
-      progress,
-    ) => {
-      set({
-        transitionProgress:
-          Math.max(
-            0,
-            Math.min(
-              1,
-              progress,
-            ),
-          ),
-      });
-    },
+  toggleView: () => {
+    set((state) => ({
+      viewMode:
+        state.viewMode === "cockpit"
+          ? "chase"
+          : "cockpit",
+    }));
+  },
 
-    completeIntro: () => {
-      set({
-        introComplete: true,
-      });
-    },
+  setTransitionProgress: (progress) => {
+    set({
+      transitionProgress: Math.max(
+        0,
+        Math.min(1, progress),
+      ),
+    });
+  },
 
-    reset: () => {
-      set({
-        /*
-         * Reset back to the outside
-         * starting position.
-         */
-        viewMode: "chase",
+  completeIntro: () => {
+    set({ introComplete: true });
+  },
 
-        transitionProgress: 1,
+  openFlightTutorial: () => {
+    set({ flightTutorialOpen: true });
+  },
 
-        introComplete: false,
-      });
-    },
-  }));
+  closeFlightTutorial: () => {
+    try {
+      localStorage.setItem(TUTORIAL_STORAGE_KEY, "true");
+    } catch {
+      // Storage might be unavailable.
+    }
+
+    set({
+      flightTutorialOpen: false,
+      flightTutorialDismissed: true,
+    });
+  },
+
+  reset: () => {
+    set({
+      viewMode: "chase",
+      transitionProgress: 1,
+      introComplete: false,
+      flightTutorialOpen: false,
+    });
+  },
+}));
